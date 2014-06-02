@@ -26,12 +26,6 @@ function webform_multiplefields_schema() {
         'unsigned' => TRUE,
         'not null' => TRUE,
       ),
-      'is_multiple' => array(
-        'description' => 'Will verify if field is multiple.',
-        'type' => 'int',
-        'not null' => TRUE,
-        'default' => '0',
-      ),
       'cardinality' => array(
         'description' => 'Cardinality of field',
         'type' => 'int',
