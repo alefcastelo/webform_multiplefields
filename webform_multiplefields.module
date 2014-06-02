@@ -1,0 +1,294 @@
+<?php
+
+/**
+ * Implements hook_form_alter().
+ */
+function webform_multiplefields_form_alter(&$form, &$form_state, $form_id) {
+  if($form_id == "webform_component_edit_form"){
+    _form_set_components_settings($form);
+  }
+  if(isSet($form['#node']->nid) && ("webform_client_form_{$form['#node']->nid}" == $form_id)){
+    //print_r($form);die;
+    _set_components_multiples($form['#node']->nid, $form['#node']->webform['components'], $form);
+    $form['#validate'][0] = '_webform_multiplefields_client_form_validate';
+    $form['#validate'][1] = '_webform_client_form_validate';
+  }
+
+}
+
+
+/**
+ * Implements hook_webform_component_insert().
+ */
+function webform_multiplefields_webform_component_insert($component) {
+  _save_settings_component($component);
+}
+
+/**
+ * Implements hook_webform_component_presave().
+ */
+function webform_multiplefields_webform_component_presave(&$component) {
+  _save_settings_component($component);
+}
+
+/**
+ * Implements hook_webform_component_delete().
+ */
+function webform_multiplefields_webform_component_delete($component) {
+  _delete_settings_component($component);
+}
+
+/**
+ * Set settings to field
+ */
+function _form_set_components_settings(&$form) {
+  $settings_component = _load_settings_component($form['nid']['#value'], $form['cid']['#value']);
+
+  $form['groupmultiplefield'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Field Value Settings'),
+    '#weight' => 5,
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['groupmultiplefield']['is_multiple'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Multiple field'),
+    '#weight' => -1,
+    '#default_value' => (isSet($settings_component->is_multiple)? $settings_component->is_multiple : 0  ) ,
+    '#description' => t('Optional. If this field is checked, you will can add multiple values at field.'),
+  );
+  $form['groupmultiplefield']['cardinality'] = array(
+    '#type' => 'select',
+    '#title' => t('Number of values'),
+    '#default_value' => (isSet($settings_component->cardinality)? $settings_component->cardinality : 1 ),
+    '#options' => _get_options_cardinality(),
+  );
+}
+
+function _component_default_settings() {
+  $component_default_settings = new stdClass;
+  $component_default_settings->is_multiple = 0;
+  $component_default_settings->cardinality = -1;
+  return $component_default_settings;
+}
+
+/**
+ * Get settings of component, by the nid, cid and type. If not been set in db, return settings default.
+ */
+function _load_settings_component($nid, $cid) {
+  $component_settings = db_select('webform_multiplefields', 'wm')
+    ->fields('wm')
+    ->condition('nid', $nid)
+    ->condition('cid', $cid)
+    ->execute()
+    ->fetchObject();
+  return $component_settings;
+}
+
+/**
+ * Create settings the field multiple.
+ */
+function _create_settings_component($component) {
+  $component['cid'] = !empty($component['cid'])? $component['cid'] : _get_next_id_component($component['nid']);
+  $wmid = db_insert('webform_multiplefields')->fields(array(
+    'nid' => $component['nid'],
+    'cid' => $component['cid'],
+    'is_multiple' => $component['groupmultiplefield']['is_multiple'],
+    'cardinality' => $component['groupmultiplefield']['cardinality'],
+    'form_key' => $component['form_key'],
+  ))->execute();
+  return $wmid;
+}
+
+/**
+ * Save or update settings of component.
+ */
+function _save_settings_component($component) {
+  if(!isSet($component['groupmultiplefield'])){
+    return false;
+  }
+  $component_exists = _load_settings_component($component['nid'], $component['cid']);
+  if(empty($component_exists)){
+    _create_settings_component($component);
+  } else {
+    _update_settings_component($component);
+  }
+  return false;
+}
+
+/**
+ * Update settings the field multiple.
+ */
+function _update_settings_component($component) {
+  $wmid = db_update('webform_multiplefields')->fields(array(
+    'nid' => $component['nid'],
+    'cid' => $component['cid'],
+    'is_multiple' => $component['groupmultiplefield']['is_multiple'],
+    'cardinality' => $component['groupmultiplefield']['cardinality'],
+    'form_key' => $component['form_key'],
+  ))->condition('nid', $component['nid'], '=')->condition('cid', $component['cid'], '=')->execute();
+  return $wmid;
+
+}
+
+/**
+ * Delete settings the field multiple.
+ */
+function _delete_settings_component($component) {
+  db_delete('webform_multiplefields')
+  ->condition('nid', $component['nid'])
+  ->condition('cid', $component['cid'])
+  ->execute();
+}
+
+
+function _set_title_elements(&$elements){
+  if(!isSet($elements['submitted'])){
+    return $elements;
+  }
+
+  foreach($elements['submitted'] as $key => $component){
+    if(!isSet($component[0]) || !is_array($component[0])){
+      continue;
+    }
+
+    foreach($component as $key_index => $item){
+      if(!isset($item['#webform_component'])){
+        continue;
+      }
+      $elements['submitted'][$key][$key_index]['#title'] = $item['#webform_component']['name'];
+    }
+  }
+  return $elements;
+}
+
+
+/**
+ * Return options of cardinality.
+ */
+function _get_options_cardinality($start = 1, $end = 10){
+  $range = drupal_map_assoc(range($start, $end));
+  return array(FIELD_CARDINALITY_UNLIMITED => t('Unlimited')) + $range;
+}
+
+/**
+ * Return id of the next component.
+ */
+function _get_next_id_component($nid){
+  $next_id_query = db_select('webform_component')->condition('nid', $nid);
+  $next_id_query->addExpression('MAX(cid) + 1', 'cid');
+  return $next_id_query->execute()->fetchField();
+}
+
+function _set_components_multiples($nid, $components, &$form){
+  $new_form = array();
+  foreach($components as $component){
+    $component = _load_settings_component($nid, $component['cid']);
+    if(_component_settings_is_valid($component) == FALSE){
+      continue;
+    }
+    $new_form = array_merge($form['submitted'], _set_html_to_component_recursive($form['submitted'], $component->form_key, $component));
+  }
+  return $new_form;
+}
+
+/**
+ * Ainda vou melhorar essa poha
+ */
+function _set_html_to_component_recursive(&$form, $key, $component_settings){
+  if (is_array($form)) {
+    if (isset($form[$key])){
+      $multiples_components = array();
+      for($no = 0; $no < $component_settings->cardinality; $no++){
+        if(_is_admin_submission())  {
+          $settings_value = array(
+            'nid' => $component_settings->nid,
+            'cid' => $component_settings->cid,
+            'sid' => _admin_submission_get_sid(),
+            'no' => $no,
+          );
+          _set_default_value_component($form[$key], $settings_value);
+        }
+        $form[$key]['#weight'] = $no;
+
+        if($no <> 0){
+          unset($form[$key]['#title']);
+        }
+        $multiples_components[]  = $form[$key];
+      }
+      $form[$key] = $multiples_components;
+    }
+    foreach ($form as &$subarray){
+      _set_html_to_component_recursive($subarray, $key, $component_settings);
+    }
+  }
+  return $form;
+}
+
+
+
+function _component_settings_is_valid($component){
+  if(empty($component)){
+    return false;
+  } else if($component->is_multiple == 0){
+    return false;
+  } else if($component->cardinality == 1){
+    return false;
+  } else if(is_numeric($component->form_key)){
+   return false;
+  }
+  return true;
+}
+
+
+function _get_default_value_by_nid_cid_sid_no($settings){
+  $component_value = db_select('webform_submitted_data', 'wsd')
+    ->fields('wsd', array('data'))
+    ->condition('nid', $settings['nid'])
+    ->condition('cid', $settings['cid'])
+    ->condition('sid', $settings['sid'])
+    ->condition('no', $settings['no'])
+    ->execute()
+    ->fetchField();
+  return $component_value;
+}
+
+
+function _set_default_value_component(&$component, $settings){
+  $settings_value = array(
+    'nid' => $settings['nid'],
+    'cid' => $settings['cid'],
+    'sid' => $settings['sid'],
+    'no' => $settings['no'],
+  );
+  $component['#default_value'] = _get_default_value_by_nid_cid_sid_no($settings_value);
+  return $component;
+}
+
+
+/**
+ * Verify if page admin submission.
+ */
+function _is_admin_submission(){
+  $args = arg();
+  if( (isSet($args[2]) && ($args[2] == "submission")) && (isSet($args[4]) && ($args[4] == "edit")) ){
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Verify if page admin submission.
+ */
+function _admin_submission_get_sid(){
+  $args = arg();
+  if(!isSet($args[3])){
+    return FALSE;
+  }
+  return $args[3];
+}
+
+function _webform_multiplefields_client_form_validate($elements, &$form_state, $first_run = TRUE) {
+  $elements['complete form']['submitted'] = _set_title_elements($form_state['complete form']);
+}

@@ -1,0 +1,7 @@
+name = "Webform Multiple Fields"
+description = "The field may accept multi values."
+package = Webform
+core = "7.x"
+version = "7.x.1.0"
+dependencies[] = webform
+

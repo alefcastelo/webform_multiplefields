@@ -1,0 +1,53 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function webform_multiplefields_schema() {
+  $schema = array();
+  $schema['webform_multiplefields'] = array(
+    'description' => 'Saves components with multiple values.',
+    'fields' => array(
+      'wmid' => array(
+        'description' => 'The primary identifier at table.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'nid' => array(
+        'description' => 'The current {node} nid of this node.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'cid' => array(
+        'description' => 'The current {webform_component} cid of this node.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'is_multiple' => array(
+        'description' => 'Will verify if field is multiple.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => '0',
+      ),
+      'cardinality' => array(
+        'description' => 'Cardinality of field',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => '1',
+      ),
+      'form_key' => array(
+        'description' => 'Key of field',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('wmid'),
+  );
+
+  return $schema;
+}
