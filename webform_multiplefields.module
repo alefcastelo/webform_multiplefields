@@ -4,11 +4,12 @@
  * Implements hook_form_alter().
  */
 function webform_multiplefields_form_alter(&$form, &$form_state, $form_id) {
+  // Page admin component
   if($form_id == "webform_component_edit_form"){
     formSetComponentsSettings($form);
   }
+  // Page form
   if(isSet($form['#node']->nid) && ("webform_client_form_{$form['#node']->nid}" == $form_id)){
-
     setComponentsMultiples($form['#node']->nid, $form['#node']->webform['components'], $form);
     $form['#validate'][0] = 'webformMultiplefieldsClientFormValidate';
     $form['#validate'][1] = '_webform_client_form_validate';
@@ -146,32 +147,63 @@ function setTitleElements(&$elements){
   return $elements;
 }
 
-
-function buttonAddMore(&$form){
+function buttonAddMore(&$form, $cpSettings){
   $form['button_add_more'] = array(
     '#type' => 'button',
     '#value' => t("Add More"),
+    '#executes_submit_callback' => FALSE,
     '#ajax' => array(
-      'callback' => "buttonAddMoreField",
-      'wrapper' => "button_add_more_field",
-        'method' => 'replace',
+      'action' => 'click',
+      'callback' => "buttonAddMoreJSField",
+      'wrapper' => "edit-submitted-fieldset-{$cpSettings->form_key}",
+      'method' => 'replace',
+      'effect' => 'fade',
+      'name' => $cpSettings->form_key,
     ),
+    '#prefix' => "<div id=\"warpper-ajax-{$cpSettings->form_key}\">",
+    '#suffix' => "</div>",
+    '#attributes' => array('data-nid' => $cpSettings->nid, 'data-cid' => $cpSettings->cid),
   );
 }
 
-function addFieldsetToFieldsMultiples(&$form, $key){
-  $form[$key] = array(
+function buttonAddMoreJSField($form, $form_state){
+  $name = $form_state['clicked_button']['#ajax']['name'];
+  $components = $form['submitted']["fieldset_{$name}"][$name];
+  foreach($components as $key => $component){
+    if(!isSet($component['#webform_component'])){
+      unset($components[$key]);
+    }
+  }
+
+  $modelo = $components[0];
+  unset($modelo['#title']);
+  $form['submitted']["fieldset_{$name}"][$name][5] = $modelo;
+  print drupal_render($form['submitted']["fieldset_{$name}"][$name]); die;
+  return $form['submitted']["fieldset_{$name}"];
+}
+
+function addFieldsetToComponentsMultiples(&$form, $cpSettings){
+  if($cpSettings->cardinality == 1){
+    return FALSE;
+  }
+  $weight = $form[$cpSettings->form_key][0]['#weight'];
+  $fieldset["fieldset_{$cpSettings->form_key}"] = array(
     '#type' => 'fieldset',
-    '#title' => $form[$key]['#title'],
-    '#weight' => 5,
+    '#weight' => $weight,
     '#collapsible' => TRUE,
     '#collapsed' => FALSE,
   );
+  $fieldset["fieldset_{$cpSettings->form_key}"][$cpSettings->form_key] = $form[$cpSettings->form_key];
+
+  if($cpSettings->cardinality < 0){
+    buttonAddMore($fieldset, $cpSettings);
+  }
+
+  $form = array_merge($fieldset, $form);
+  unset($form[$cpSettings->form_key]);
+  return TRUE;
 }
 
-function buttonAddMoreField($form, &$form_state){
-  print_r("ok");die;
-}
 
 /**
  * Return options of cardinality.
@@ -205,44 +237,14 @@ function setComponentsMultiples($nid, $components, &$form){
 /**
  * Ainda vou melhorar essa poha
  */
-function setMultipleComponentRecursive(&$form, $key, $cpSettings, $cpUnlimited = FALSE){
+function setMultipleComponentRecursive(&$form, $key, $cpSettings){
   if (!is_array($form[$key])) {
     return $form;
   }
 
-  $cpMultiples = array();
-  if($cpSettings->cardinality < 0){
-    $cpUnlimited = TRUE;
-    $item = $form[$key];
-
-    addFieldsetToFieldsMultiples($form[$key], $key);
-
-    $cpSettings->cardinality = 1;
-    $form[$key] = $item;
-  }
-
-  for($index = 0; $index < $cpSettings->cardinality; $index++){
-    if(isAdminSubmission())  {
-      $cpDefautValueSettings = array(
-        'nid' => $cpSettings->nid,
-        'cid' => $cpSettings->cid,
-        'sid' => adminSubmissionGetSid(),
-        'no' => $index,
-      );
-
-      setDefaultValueComponent($form[$key], $cpDefautValueSettings);
-    }
-
-    $form[$key]['#weight'] = $index;
-
-    unsetTitleComponent($form[$key], $index);
-
-    $cpMultiples[]  = $form[$key];
-  }
-
-  $form[$key] = $cpMultiples;
-  if($cpUnlimited){
-    buttonAddMore($form[$key]);
+  dupliqueFieldByCardinality($form[$key], $cpSettings);
+  if(addFieldsetToComponentsMultiples($form, $cpSettings)){
+    return $form;
   }
 
   foreach ($form as &$subarray){
@@ -281,7 +283,7 @@ function setDefaultValueComponent(&$component, $settings){
 /**
  * Verify if page admin submission.
  */
-function isAdminSubmission(){
+function isPageSubmission(){
   $args = arg();
   if( (isSet($args[2]) && ($args[2] == "submission")) && (isSet($args[4]) && ($args[4] == "edit")) ){
     return TRUE;
@@ -308,7 +310,61 @@ function webformMultiplefieldsClientFormValidate($elements, &$form_state, $first
  * Unset title if <> 0
  */
 function unsetTitleComponent(&$form, $index){
-  if($index <> 0){
-    unset($form['#title']);
+  if($index == 0){
+    return FALSE;
   }
+  unset($form['#title']);
+}
+
+/**
+ * Set $form[$key]['#weight'] = $index;
+ */
+function setWeightByIndex(&$form, $index){
+  if(empty($index)){
+    return FALSE;
+  }
+  $form['#weight'] = $index;
+}
+
+function dupliqueFieldByCardinality(&$form, $cpSettings, $cpUnlimited = FALSE){
+  $cpMultiples = array();
+  $cardinality = $cpSettings->cardinality;
+
+  if($cardinality == -1){
+    $cardinality = 1;
+  }
+
+  for($index = 0; $index < $cardinality; $index++){
+    if( isPageSubmission() ) {
+      $cpDefautValueSettings = array(
+        'nid' => $cpSettings->nid,
+        'cid' => $cpSettings->cid,
+        'sid' => adminSubmissionGetSid(),
+        'no' => $index,
+      );
+      setDefaultValueComponent($form, $cpDefautValueSettings);
+    }
+    setWeightByIndex($form, $index);
+    unsetTitleComponent($form, $index);
+    $cpMultiples[]  = $form;
+  }
+
+  $form = $cpMultiples;
+
+
+  return $form;
+}
+
+function countIndexByName(&$form, $key = NULL){
+
+  if(isSet($form[$key]) && is_array($form[$key]) && isSet($form[$key]['button_add_more'])){
+    unset($form[$key]['button_add_more']);
+    return count($form[$key]);
+  }
+
+  foreach($form as $key => &$subarray){
+    countIndexByName($subarray, $key);
+  }
+
+  return $form;
 }
