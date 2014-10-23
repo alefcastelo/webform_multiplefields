@@ -269,13 +269,7 @@ function getDefaultValueByNidCidSidNo($settings){
 
 
 function setDefaultValueComponent(&$component, $settings){
-  $settings_value = array(
-    'nid' => $settings['nid'],
-    'cid' => $settings['cid'],
-    'sid' => $settings['sid'],
-    'no' => $settings['no'],
-  );
-  $component['#default_value'] = getDefaultValueByNidCidSidNo($settings_value);
+  $component['#default_value'] = getDefaultValueByNidCidSidNo($settings);
   return $component;
 }
 
